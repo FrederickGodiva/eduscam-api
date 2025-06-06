@@ -23,7 +23,7 @@ async def generate_scam_response(user_input, conversation_history):
     messages.append({"role":"user", "content":user_input})
 
     completion = client.chat.completions.create(
-        model='gpt-4',
+        model='gpt-4o-mini',
         messages= messages
     )
 
