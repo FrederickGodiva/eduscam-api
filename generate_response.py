@@ -19,7 +19,8 @@ async def generate_scam_response(user_input, conversation_history):
     ]
 
     for msg in conversation_history:
-        messages.append(msg)
+        if "role" in msg and "content" in msg:
+            messages.append(msg)
 
     messages.append({"role": "user", "content": user_input})
 

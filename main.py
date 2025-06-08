@@ -69,12 +69,21 @@ async def chat(user_message: Message):
 async def whatsapp_webhook(request: Request):
     try:
         data = await request.json()
-        logging.info(f"Received webhook data: {data}")
+        print("Received data:", data)
 
-        phone_number = data['messages'][0]['sender']['id']
-        text = data['messages'][0]['text']
-        chat_id = f"{phone_number}@c.us"
+        # Extract data from WAHA-like payload
+        payload = data.get('payload', {})
+        sender_id = payload.get('from')
+        text = payload.get('body')
+        chat_id = payload.get('to')
+        print(sender_id, text)
 
+        if not sender_id or not text:
+            raise ValueError("Missing 'from' or 'body' in payload")
+
+        phone_number = sender_id.split("@")[0]
+
+        # Session management
         session_id = None
         for sid, conv in conversations.items():
             if conv and conv[0].get('phone_number') == phone_number:
@@ -83,22 +92,25 @@ async def whatsapp_webhook(request: Request):
 
         if not session_id:
             session_id = str(uuid.uuid4())
-            conversations[session_id] = []
-            conversations[session_id].append({"role": "system", "phone_number": phone_number})
+            conversations[session_id] = [{"role": "system", "phone_number": phone_number}]
 
         conversations[session_id].append({"role": "user", "content": text})
+        print(conversations[session_id])
 
+        # Generate response from your scam simulator or chatbot
         response = await generate_scam_response(text, conversations[session_id])
+        print(response)
         conversations[session_id].append({"role": "assistant", "content": response})
 
-        payload = {
+        # Send message via WAHA
+        payload_to_send = {
             "session": "default",
-            "chatId": chat_id,
+            "chatId": sender_id,  # Send back to the original sender
             "text": response
         }
         headers = {"Content-Type": "application/json"}
-        res = requests.post("http://waha:3000/api/sendText", json=payload, headers=headers)
-        res.raise_for_status()  # Trigger exception jika gagal kirim
+        res = requests.post("http://waha:3000/api/sendText", json=payload_to_send, headers=headers)
+        res.raise_for_status()
 
         return JSONResponse(content={"status": "ok"}, status_code=200)
 
