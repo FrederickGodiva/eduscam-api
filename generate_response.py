@@ -1,6 +1,7 @@
 from openai import OpenAI
 import credentials as credentials
 
+
 async def generate_scam_response(user_input, conversation_history):
 
     system_prompt = (
@@ -10,21 +11,21 @@ async def generate_scam_response(user_input, conversation_history):
     )
 
     client = OpenAI(
-        api_key = credentials.API_KEY
+        api_key=credentials.API_KEY
     )
 
     messages = [
-        {"role": "system", "content":system_prompt}
+        {"role": "system", "content": system_prompt}
     ]
 
     for msg in conversation_history:
         messages.append(msg)
 
-    messages.append({"role":"user", "content":user_input})
+    messages.append({"role": "user", "content": user_input})
 
     completion = client.chat.completions.create(
         model='gpt-4o-mini',
-        messages= messages
+        messages=messages
     )
 
     return completion.choices[0].message.content

@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  eduscam-api:
+    build: .
+    container_name: eduscam-api
+    ports:
+      - "8000:80"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - waha
+
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: waha
+    environment:
+      - WAHA_PORT=3000
+      - WEBHOOK_URL=http://eduscam-api:80/webhook
+    ports:
+      - "3000:3000"
