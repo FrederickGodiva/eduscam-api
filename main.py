@@ -1,5 +1,5 @@
 import uuid
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import requests
 
@@ -98,3 +98,75 @@ async def chat(message: Message):
     )
 
     return {"message": response, "simulation_ended": False}
+
+@app.post('/api/webhook')
+async def webhook(request: Request):
+    try:
+        # Parse incoming webhook data
+        data = await request.json()
+        print(data)
+
+        payload = data.get('payload', {})
+        sender_id = payload.get('from')
+        text = payload.get('body')
+        chat_id = payload.get('to')
+
+        message = data.get("message")
+        chat_id = data.get("chatId")
+        
+        if not message or not chat_id:
+            raise HTTPException(status_code=400, detail="Invalid webhook data")
+        
+        # Process the incoming message
+        session_id = chat_id  # Use chat_id as session_id for simplicity
+        session = session_manager.get_session(session_id)
+        
+        if not session:
+            # If no session exists, create a new one
+            session = session_manager.create_session(session_id, chat_id)
+            initial_message = await scammer.generate_message(session['scam_type'])
+            session_manager.update_session(session_id, "", initial_message)
+            
+            # Send initial scam message back to WAHA
+            return {
+                "chatId": chat_id,
+                "text": initial_message
+            }
+        
+        # Evaluate user response
+        user_flag = await evaluator.evaluate_response(
+            message,
+            session['conversation_history']
+        )
+        
+        # Check if simulation should end
+        if user_flag == "deceived" or session['turn_counter'] >= settings.MAX_TURNS:
+            feedback = await educator.generate_feedback(
+                user_flag,
+                session['scam_type'],
+                session['conversation_history']
+            )
+            session['is_simulation_revealed'] = True
+            return {
+                "chatId": chat_id,
+                "text": feedback
+            }
+        
+        # Generate next scammer message
+        response = await scammer.generate_message(
+            session['scam_type'],
+            message
+        )
+        session_manager.update_session(
+            session_id,
+            message,
+            response,
+            user_flag
+        )
+        
+        return {
+            "chatId": chat_id,
+            "text": response
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -17,6 +17,6 @@ services:
     container_name: waha
     environment:
       - WAHA_PORT=3000
-      - WEBHOOK_URL=http://eduscam-api:80/webhook
+      - WEBHOOK_URL=http://eduscam-api:80/api/webhook
     ports:
       - "3000:3000"
