@@ -1,5 +1,7 @@
 import uuid
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+import logging
 from fastapi.middleware.cors import CORSMiddleware
 import requests
 
@@ -99,74 +101,78 @@ async def chat(message: Message):
 
     return {"message": response, "simulation_ended": False}
 
-@app.post('/api/webhook')
-async def webhook(request: Request):
+@@app.post("/api/webhook")
+async def whatsapp_webhook(request: Request):
     try:
-        # Parse incoming webhook data
         data = await request.json()
-        print(data)
+        logging.info(f"Incoming WAHA data: {data}")
 
         payload = data.get('payload', {})
         sender_id = payload.get('from')
         text = payload.get('body')
-        chat_id = payload.get('to')
 
-        message = data.get("message")
-        chat_id = data.get("chatId")
-        
-        if not message or not chat_id:
-            raise HTTPException(status_code=400, detail="Invalid webhook data")
-        
-        # Process the incoming message
-        session_id = chat_id  # Use chat_id as session_id for simplicity
-        session = session_manager.get_session(session_id)
-        
-        if not session:
-            # If no session exists, create a new one
-            session = session_manager.create_session(session_id, chat_id)
+        logging.info(f"Payload: {sender_id} {text}")
+
+        if not sender_id or not text:
+            raise ValueError("Missing 'from' or 'body' in WAHA payload")
+
+        phone_number = sender_id.split("@")[0]
+
+        # Get or create session
+        session_id = None
+        for sid, sess in session_manager.sessions.items():
+            if sess['phone_number'] == phone_number:
+                logging.info(f"Session ID: {sess}")
+                session_id = sid
+                break
+
+        if not session_id:
+            session_id = str(uuid.uuid4())
+            session = session_manager.create_session(session_id, phone_number)
+            logging.info(f"Session {session}")
             initial_message = await scammer.generate_message(session['scam_type'])
             session_manager.update_session(session_id, "", initial_message)
-            
-            # Send initial scam message back to WAHA
-            return {
-                "chatId": chat_id,
-                "text": initial_message
-            }
-        
-        # Evaluate user response
-        user_flag = await evaluator.evaluate_response(
-            message,
-            session['conversation_history']
-        )
-        
-        # Check if simulation should end
-        if user_flag == "deceived" or session['turn_counter'] >= settings.MAX_TURNS:
+
+            await send_whatsapp_message(sender_id, initial_message)
+            return JSONResponse(content={"status": "started", "session_id": session_id}, status_code=200)
+
+        # Process user message
+        session = session_manager.get_session(session_id)
+        user_flag = await evaluator.evaluate_response(text, session['conversation_history'])
+
+        print(f"Turn {session['turn_counter'] + 1} / {settings.MAX_TURNS}")
+
+        # Continue simulation or end
+        if session['turn_counter'] >= settings.MAX_TURNS:
             feedback = await educator.generate_feedback(
                 user_flag,
                 session['scam_type'],
                 session['conversation_history']
             )
             session['is_simulation_revealed'] = True
-            return {
-                "chatId": chat_id,
-                "text": feedback
-            }
-        
-        # Generate next scammer message
-        response = await scammer.generate_message(
-            session['scam_type'],
-            message
-        )
-        session_manager.update_session(
-            session_id,
-            message,
-            response,
-            user_flag
-        )
-        
-        return {
-            "chatId": chat_id,
-            "text": response
-        }
+
+            await send_whatsapp_message(sender_id, feedback)
+            return JSONResponse(content={"status": "ended", "feedback": feedback}, status_code=200)
+
+        # Use conversation history when generating the next scammer message
+        response = await scammer.generate_message(session['scam_type'], text)
+
+        session_manager.update_session(session_id, text, response, user_flag)
+
+        await send_whatsapp_message(sender_id, response)
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logging.error(f"Error in /api/webhook: {e}", exc_info=True)
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+async def send_whatsapp_message(chat_id: str, text: str):
+    payload = {
+        "session": "default",
+        "chatId": chat_id,
+        "text": text
+    }
+    headers = {"Content-Type": "application/json"}
+    res = requests.post("http://waha:3000/api/sendText", json=payload, headers=headers)
+    res.raise_for_status()

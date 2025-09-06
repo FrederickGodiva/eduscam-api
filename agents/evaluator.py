@@ -23,9 +23,9 @@ class EvaluatorAgent:
 
         # Extract flag from response
         evaluation = response.choices[0].message.content
-        if "vigilant" in evaluation.lower():
+        if evaluation and "vigilant" in evaluation.lower():
             return "vigilant"
-        elif "unsure" in evaluation.lower():
+        elif evaluation and "unsure" in evaluation.lower():
             return "unsure"
         else:
             return "deceived"
